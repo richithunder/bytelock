@@ -210,7 +210,7 @@ void finalizeStaConnection() {
 
 namespace NetworkManager {
 
-void begin(DeviceConfig &config) {
+void begin(DeviceConfig &config, bool forceConfigPortal) {
   activeConfig = &config;
   currentState = NetState::CONNECTING;
 
@@ -228,15 +228,27 @@ void begin(DeviceConfig &config) {
 
   apNameStorage = buildApName();
 
-  // Bloquea hasta kConnectTimeoutSeconds únicamente si hay credenciales
-  // guardadas (una sola vez, en el arranque). Si falla o no hay
-  // credenciales, arranca el portal cautivo no bloqueante y retorna false
-  // de inmediato (setConfigPortalBlocking(false) ya fue configurado arriba).
-  // El parpadeo amarillo (vía Ticker) cubre esta ventana bloqueante, ya que
-  // el LED normal (update(), llamado desde loop()) no corre durante ella.
-  LedStatus::beginConnectingBlink();
-  bool connected = wm.autoConnect(apNameStorage.c_str());
-  LedStatus::endConnectingBlink();
+  bool connected = false;
+
+  if (forceConfigPortal) {
+    // Puente de "modo configuración" presente: se omite el intento de
+    // conexión y se levanta el portal directamente, sin tocar ni borrar
+    // las credenciales/config ya guardadas (a diferencia del factory
+    // reset). No bloquea: setConfigPortalBlocking(false) ya aplica acá
+    // igual que en autoConnect().
+    Serial.println("[NetworkManager] Puente de modo configuracion presente: forzando portal.");
+    wm.startConfigPortal(apNameStorage.c_str());
+  } else {
+    // Bloquea hasta kConnectTimeoutSeconds únicamente si hay credenciales
+    // guardadas (una sola vez, en el arranque). Si falla o no hay
+    // credenciales, arranca el portal cautivo no bloqueante y retorna false
+    // de inmediato (setConfigPortalBlocking(false) ya fue configurado arriba).
+    // El parpadeo amarillo (vía Ticker) cubre esta ventana bloqueante, ya que
+    // el LED normal (update(), llamado desde loop()) no corre durante ella.
+    LedStatus::beginConnectingBlink();
+    connected = wm.autoConnect(apNameStorage.c_str());
+    LedStatus::endConnectingBlink();
+  }
 
   if (connected) {
     finalizeStaConnection();

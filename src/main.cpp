@@ -12,6 +12,15 @@ constexpr uint8_t kFactoryResetPin = 0;  // Botón BOOT integrado.
 constexpr unsigned long kFactoryResetHoldMs = 5000;
 constexpr uint32_t kResetCheckIntervalMs = 200;
 
+// Puente físico de "modo configuración": puentear GPIO6 a GND fuerza el
+// portal cautivo (sin borrar credenciales/config); al retirarlo, el
+// dispositivo reintenta conectarse normalmente. Distinto del factory
+// reset: este no borra nada, solo alterna el modo mientras el puente está
+// colocado.
+constexpr uint8_t kConfigModePin = 6;
+constexpr uint32_t kConfigModeCheckIntervalMs = 200;
+constexpr uint32_t kConfigModeDebounceMs = 500;
+
 DeviceConfig deviceConfig;
 bool lockServerStarted = false;
 
@@ -31,6 +40,42 @@ volatile bool resetButtonDown = false;
 // Por eso corre en su propio Ticker (contexto de tarea normal, seguro para
 // tocar el LED), independiente del loop principal.
 Ticker resetCheckTicker;
+
+// Puente de modo configuración: igual que el botón de reset, se monitorea
+// desde un Ticker propio para seguir funcionando aunque loop() esté
+// trabado. No hace falta ISR acá (no hay que medir un mantenido preciso,
+// solo detectar un cambio de estado estable) — con debounce por polling
+// alcanza. Ante un cambio confirmado, reinicia: el nuevo modo lo decide
+// setup() leyendo el pin de nuevo en el siguiente arranque.
+Ticker configModeTicker;
+bool configModeJumperPresent = false;
+bool configModeChangePending = false;
+bool configModePendingState = false;
+unsigned long configModePendingSinceMs = 0;
+
+void checkConfigModeJumper() {
+  bool nowPresent = (digitalRead(kConfigModePin) == LOW);
+
+  if (nowPresent == configModeJumperPresent) {
+    configModeChangePending = false;
+    return;
+  }
+
+  if (!configModeChangePending || nowPresent != configModePendingState) {
+    configModeChangePending = true;
+    configModePendingState = nowPresent;
+    configModePendingSinceMs = millis();
+    return;
+  }
+
+  if (millis() - configModePendingSinceMs >= kConfigModeDebounceMs) {
+    Serial.println(nowPresent
+                        ? "[ConfigMode] Puente colocado: reiniciando para forzar el portal..."
+                        : "[ConfigMode] Puente retirado: reiniciando para reconectar...");
+    Serial.flush();
+    ESP.restart();
+  }
+}
 
 void IRAM_ATTR onResetButtonChange() {
   if (digitalRead(kFactoryResetPin) == LOW) {
@@ -79,10 +124,15 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(kFactoryResetPin), onResetButtonChange, CHANGE);
   resetCheckTicker.attach_ms(kResetCheckIntervalMs, checkFactoryResetButton);
 
+  pinMode(kConfigModePin, INPUT_PULLUP);
+  bool forceConfigPortal = (digitalRead(kConfigModePin) == LOW);
+  configModeJumperPresent = forceConfigPortal;  // estado inicial real, evita un "cambio" falso
+  configModeTicker.attach_ms(kConfigModeCheckIntervalMs, checkConfigModeJumper);
+
   deviceConfig = ConfigStore::load();
 
   LedStatus::begin();
-  NetworkManager::begin(deviceConfig);
+  NetworkManager::begin(deviceConfig, forceConfigPortal);
 }
 
 void loop() {

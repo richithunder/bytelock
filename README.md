@@ -20,7 +20,8 @@ Todo el `loop()` principal es no bloqueante: ni el servidor web, ni el pulso del
 |---|---|---|
 | Salida al relé | **GPIO5** | Digital OUTPUT. Activo en **HIGH** por defecto (ver nota abajo). |
 | Buzzer pasivo de pruebas (opcional) | **GPIO4** | Feedback sonoro en paralelo con cada pulso de apertura, vía `tone()`. No forma parte de la lógica de la cerradura; pensado para pruebas de banco. Conectar terminal + a GPIO4 y terminal − a GND. |
-| Botón Factory Reset | **GPIO0** (BOOT) | Botón ya integrado en la placa DevKitC-1, `INPUT_PULLUP`. No requiere cableado adicional. |
+| Botón Factory Reset | **GPIO0** (BOOT) | Botón ya integrado en la placa DevKitC-1, `INPUT_PULLUP`. No requiere cableado adicional. **Borra** credenciales Wi-Fi y configuración. |
+| Puente de Modo Configuración | **GPIO6** | `INPUT_PULLUP`. Puentear a **GND** para forzar el portal cautivo **sin borrar nada**; retirar el puente para volver a intentar conectar. Conectar un jumper/cable entre GPIO6 y cualquier GND de la placa. |
 | LED de estado | **GPIO48** (`RGB_BUILTIN`) | LED RGB direccionable ya integrado en la placa (WS2812). No requiere cableado adicional. |
 | Alimentación lógica del relé | **3V3** / **GND** | La señal de control (base del transistor / entrada IN del módulo) es compatible con 3.3V. |
 | Alimentación de la bobina del relé | **5V** (pin `5V`/`VIN`) / **GND** | La mayoría de los módulos de relé de 1 canal de bajo costo requieren 5V para energizar la bobina; usar el pin de 5V de la placa (no el de 3V3) y **GND común** con el ESP32. |
@@ -129,9 +130,23 @@ La comparación del token se hace en tiempo constante (no se corta en el primer 
 
 ### Reconfigurar más adelante
 
-Para volver a entrar al portal (cambiar de red, IP, token o tiempo de pulso), hacer un **factory reset físico** (ver sección siguiente): al no quedar credenciales guardadas, el dispositivo vuelve a levantar el portal (`byteLock<XXXX>`) en el siguiente arranque.
+Hay dos formas de volver a entrar al portal, según si querés conservar la configuración actual o no:
 
-### Factory reset físico
+- **Puente de Modo Configuración (no destructivo, recomendado para ajustes):** ver la sección siguiente. Conserva todo lo guardado (útil para, por ejemplo, corregir solo el gateway o el tiempo de pulso).
+- **Factory reset físico (destructivo):** ver más abajo. Borra todo — usarlo cuando se quiere reconfigurar desde cero (cambiar de red Wi-Fi, mover el dispositivo a otra instalación, etc.).
+
+### Modo Configuración (puente en GPIO6, no destructivo)
+
+Pensado para reconfigurar parámetros (IP, gateway, token, tiempo de pulso) sin perder las credenciales Wi-Fi ya guardadas — a diferencia del factory reset, **no borra nada**.
+
+1. Con el dispositivo apagado o ya operando, puentear **GPIO6** a **GND** (un jumper de 2 pines, o simplemente un cable).
+2. Si se coloca el puente mientras el dispositivo está encendido, se reinicia solo y arranca directamente en modo portal (`byteLock<XXXX>`), sin intentar conectarse primero. Si ya estaba apagado, alcanza con encenderlo con el puente colocado.
+3. Conectarse al portal y hacer los cambios necesarios. Si se guarda algo, el dispositivo se reinicia igual que en el primer aprovisionamiento (ver arriba) — pero al volver a arrancar, como el puente sigue colocado, vuelve a entrar en modo portal en vez de intentar conectarse (para poder seguir ajustando sin que se te "escape" a modo operación).
+4. Cuando termines, **retirar el puente**: el dispositivo detecta el cambio y se reinicia solo, esta vez intentando conectarse normalmente con la configuración (nueva o existente) que haya guardada.
+
+**Nota técnica:** el estado del puente se monitorea desde un `Ticker` independiente del `loop()` principal (con un *debounce* de ~500ms), por el mismo motivo que el botón de factory reset: durante un intento de conexión el `loop()` puede quedar bloqueado varios segundos, y un chequeo que dependiera de él podría no reaccionar a tiempo.
+
+### Factory reset físico (destructivo)
 
 1. Mantener presionado el botón **BOOT** de la placa (GPIO0) de forma continua durante **5 segundos o más**.
 2. El firmware borra las credenciales Wi-Fi (`WiFiManager::resetSettings()`) y toda la configuración guardada en `Preferences` (modo de IP, IP fija, token, tiempo de pulso).

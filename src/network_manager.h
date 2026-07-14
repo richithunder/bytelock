@@ -7,9 +7,12 @@ namespace NetworkManager {
 
 // Arranca la conexión Wi-Fi. Si hay credenciales guardadas intenta conectar
 // (bloqueante, acotado por un timeout corto, una única vez al arrancar). Si
-// falla o no hay credenciales, levanta el portal cautivo no bloqueante
-// "Config_Dispositivo_S3". Debe llamarse una sola vez desde setup().
-void begin(DeviceConfig &config);
+// falla o no hay credenciales, levanta el portal cautivo no bloqueante.
+// Si forceConfigPortal es true (puente de "modo configuración" presente en
+// el arranque), se omite el intento de conexión y se levanta el portal
+// directamente, sin tocar las credenciales/config ya guardadas. Debe
+// llamarse una sola vez desde setup().
+void begin(DeviceConfig &config, bool forceConfigPortal = false);
 
 // Debe llamarse en cada iteración de loop(). Sirve el portal cautivo
 // mientras está activo y, una vez conectado, vigila la conexión y reintenta
