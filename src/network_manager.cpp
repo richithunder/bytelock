@@ -172,7 +172,16 @@ void applyStaticIpIfNeeded(const DeviceConfig &cfg) {
 
   IPAddress ip, gateway, subnet;
   if (ip.fromString(cfg.staticIP) && gateway.fromString(cfg.gateway) && subnet.fromString(cfg.subnet)) {
-    wm.setSTAStaticIPConfig(ip, gateway, subnet);
+    // Deliberadamente WiFi.config() directo, NO wm.setSTAStaticIPConfig():
+    // esa API de WiFiManager tiene el efecto secundario de activar sus
+    // propios campos internos de IP estática (ip/gw/sn/dns) en la página
+    // del portal, duplicados y en conflicto con nuestros parámetros
+    // personalizados (staticIP/subnet/gateway) — la conexión real termina
+    // usando el gateway del campo interno de la librería (viejo/desactualizado),
+    // no el que carga el usuario en nuestro formulario. WiFi.config() aplica
+    // la IP directamente sin tocar el estado interno de WiFiManager, así que
+    // esos campos duplicados nunca aparecen.
+    WiFi.config(ip, gateway, subnet);
   } else {
     Serial.println("[NetworkManager] IP estatica invalida, se usara DHCP.");
   }
