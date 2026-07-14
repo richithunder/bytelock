@@ -7,10 +7,11 @@ Firmware de la lógica principal de un dispositivo de cerradura inteligente basa
 - Configuración persistente (modo de IP, IP fija, token de acceso, tiempo de pulso del relé) almacenada en NVS vía `Preferences.h`.
 - Aprovisionamiento Wi-Fi mediante un portal cautivo no bloqueante (`WiFiManager`), con parámetros personalizados y la MAC del dispositivo visible en el propio portal.
 - Servidor HTTP con el endpoint `POST/GET /unlock`, protegido por un token de 16 caracteres, que activa un relé por un pulso de duración configurable.
-- Indicador visual de estado mediante el LED RGB integrado.
-- Factory reset físico mediante el botón BOOT de la placa.
+- Indicador visual de estado mediante el LED RGB integrado (incluye parpadeo amarillo rápido mientras intenta conectarse).
+- Factory reset físico y destructivo mediante el botón BOOT de la placa (borra credenciales y configuración).
+- Modo Configuración no destructivo mediante un puente físico (GPIO6 a GND): fuerza el portal sin borrar nada, para reconfigurar parámetros puntuales.
 
-Todo el `loop()` principal es no bloqueante: ni el servidor web, ni el pulso del relé, ni el chequeo del botón de reset usan `delay()`.
+Todo el `loop()` principal es no bloqueante: ni el servidor web, ni el pulso del relé, ni el chequeo de los botones/puente de entrada usan `delay()` (los dos últimos corren en `Ticker`s independientes, ver sección 3, ya que `NetworkManager::loop()` puede quedar bloqueado varios segundos dentro de `WiFiManager`).
 
 ---
 
@@ -156,7 +157,36 @@ Pensado para reconfigurar parámetros (IP, gateway, token, tiempo de pulso) sin 
 
 ---
 
-## 4. Buenas Prácticas
+## 4. Ayuda / Pruebas rápidas
+
+### Encontrar la IP del dispositivo
+
+Con `ipMode = DHCP` (el default), la IP la asigna el router y puede cambiar entre reinicios. Formas de encontrarla:
+
+- **Log serie:** al conectar (`pio device monitor`, 115200 baud), el firmware imprime `[NetworkManager] Conectado. IP: x.x.x.x` apenas conecta.
+- **Desde Windows, por MAC:** el dispositivo mantiene su MAC fija aunque cambie de IP. Buscarla en la tabla ARP:
+  ```powershell
+  arp -a | findstr "98-a3-16"
+  ```
+  (reemplazar `98-a3-16` por el inicio de la MAC real del dispositivo, visible en el portal cautivo). Puede haber una entrada vieja/no responde — si hay más de una, confirmar cuál está activa con `ping <ip>`.
+- **IP Fija:** si configuraste `IP Fija` en el portal, ya sabés la IP de antemano (es la que cargaste).
+
+### Probar `/unlock` desde Windows
+
+Windows 10/11 trae `curl.exe` real incluido (no hace falta instalar nada), pero hay que tener cuidado con **dónde** se ejecuta el comando:
+
+- **Símbolo del sistema (cmd.exe) o PowerShell 7+:** `curl` apunta al `curl.exe` real, funciona tal cual los ejemplos de este README.
+- **Windows PowerShell clásica (5.1, la que abre por defecto en muchos equipos):** ahí `curl` es un *alias* de `Invoke-WebRequest`, que **no** entiende `-i`/`-X`/`-H` de la misma forma y va a fallar o comportarse distinto. Si estás en ese caso, usar `curl.exe` explícitamente (con el `.exe`) para forzar el binario real, o correr el comando desde `cmd.exe`.
+
+Ejemplo real (ajustar la IP y el token):
+```cmd
+curl -i -X POST http://192.168.0.170/unlock -H "X-Access-Token: 0123456789abcdef"
+```
+Respuesta esperada con token correcto: `HTTP/1.1 200 OK` + `{"status":"ok","message":"unlocked"}`, relé y buzzer de prueba activándose, LED a blanco durante el pulso. Ver la sección 2 (Estructura del API) para las otras formas de pasar el token (query param, JSON body) y el caso `401`.
+
+---
+
+## 5. Buenas Prácticas
 
 ### Por qué HTTP y no HTTPS, y cómo securizar en producción
 
