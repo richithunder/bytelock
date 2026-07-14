@@ -179,7 +179,15 @@ void applyStaticIpIfNeeded(const DeviceConfig &cfg) {
 }
 
 void finalizeStaConnection() {
-  wm.stopConfigPortal();
+  // wm.stopConfigPortal() asume que el portal llegó a arrancar (usa
+  // internamente un WebServer/DNSServer que setupConfigPortal() crea). Si
+  // wm.autoConnect() conectó directo con credenciales guardadas (sin pasar
+  // nunca por el portal), esos punteros son null y stopConfigPortal()
+  // crashea (LoadProhibited) al intentar usarlos. Solo corresponde llamarlo
+  // si el portal realmente estuvo activo.
+  if (apActive) {
+    wm.stopConfigPortal();
+  }
   WiFi.mode(WIFI_STA);
   WiFi.softAPdisconnect(true);
   apActive = false;
